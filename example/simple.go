@@ -50,7 +50,10 @@ func main() {
 	wg.Wait()
 	log.Println("goroutines - stopped")
 
-	// this will close
+	// this will close chains of channels
+	// 1. input and output channels of the collector
+	// 2. input and output channels of the monitor
+	// 3. input and output channels of the viewview
 	collector.Stop()
 	time.Sleep(time.Second)
 }
