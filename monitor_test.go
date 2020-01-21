@@ -36,11 +36,11 @@ func TestMonitor(t *testing.T) {
 
 	m := ptest.NewMonitor(collector.ResultChan)
 	for {
-		sr, more := <-m.ResultChan
+		stat, more := <-m.ResultChan
 		if !more {
 			t.Log("stop monitoring")
 			break
 		}
-		t.Log(sr)
+		t.Log(stat)
 	}
 }
