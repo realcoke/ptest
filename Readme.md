@@ -1,10 +1,11 @@
 
 Ptest
 ==
-A tool to visualize performance.
+A quick and easy performance visualization tool without install and/or configuration.
 
 ## Usage
-See the example file.
+See the example file to collect and process test data.
+Open http://localhost:8080 to see charts.
 
 ### Initialization
 ```go

@@ -8,22 +8,22 @@ type Trip struct {
 	success bool
 }
 
-// Stat is a statistic of one second
-type Stat struct {
+// TripsOfSec is a trip data set for the second
+type TripsOfSec struct {
 	Time    int64
 	Success []int
 	Failure []int
 }
 
-func newStat(now int64) *Stat {
-	return &Stat{
+func newTripsOfSec(now int64) *TripsOfSec {
+	return &TripsOfSec{
 		Time:    now,
 		Success: make([]int, 0),
 		Failure: make([]int, 0),
 	}
 }
 
-func (s *Stat) feed(success bool, responseTime int) {
+func (s *TripsOfSec) feed(success bool, responseTime int) {
 	if success {
 		s.Success = append(s.Success, responseTime)
 	} else {
@@ -36,14 +36,14 @@ func (s *Stat) feed(success bool, responseTime int) {
 // and write statistics of test to ResultChan
 type Collector struct {
 	tripChan   chan *Trip
-	ResultChan chan *Stat
+	ResultChan chan *TripsOfSec
 }
 
 // NewCollector create a Collector and return it
 func NewCollector() *Collector {
 	c := &Collector{
 		tripChan:   make(chan *Trip, 1024),
-		ResultChan: make(chan *Stat, 1024),
+		ResultChan: make(chan *TripsOfSec, 1024),
 	}
 	go c.consume()
 	return c
@@ -63,13 +63,14 @@ func (c *Collector) Report(start time.Time, success bool) {
 	c.tripChan <- trip
 }
 
-// consume is a routine to process test data
+// consume processes raw test data, trip
+// it feed raw data to stat and stream stat to result channel
 func (c *Collector) consume() {
-	s := newStat(time.Now().Unix())
+	tripsOfSec := newTripsOfSec(time.Now().Unix())
 	for {
 		trip, more := <-c.tripChan
 		if !more {
-			c.publish(s)
+			c.publish(tripsOfSec)
 			close(c.ResultChan)
 			return
 		}
@@ -78,15 +79,15 @@ func (c *Collector) consume() {
 		nowUnix := now.Unix()
 		responseTime := int(now.Sub(trip.start).Milliseconds())
 
-		if s.Time != nowUnix {
-			c.publish(s)
-			s = newStat(nowUnix)
+		if tripsOfSec.Time != nowUnix {
+			c.publish(tripsOfSec)
+			tripsOfSec = newTripsOfSec(nowUnix)
 		}
-		s.feed(trip.success, responseTime)
+		tripsOfSec.feed(trip.success, responseTime)
 	}
 }
 
-func (c *Collector) publish(s *Stat) {
+func (c *Collector) publish(s *TripsOfSec) {
 	if len(s.Success) != 0 || len(s.Failure) != 0 {
 		c.ResultChan <- s
 	}

@@ -16,13 +16,14 @@ func TestCollector(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
+		// generate 100 goroutines
 		go func() {
-			// 1000 TPS per 1 goroutine * 100 goroutines => 100,000 TPS
-			// in 5 seconds
+			// report 5000 test data per each goroutine
+			// it will task about 5 sec, since it sleeps 1 millisecond before each report
 			for j := 0; j < 5000; j++ {
 				start := time.Now()
 				time.Sleep(time.Millisecond)
-				collector.Report(start, true)
+				collector.Report(start, (j % 10 != 0))
 			}
 			wg.Done()
 		}()
@@ -34,18 +35,21 @@ func TestCollector(t *testing.T) {
 		t.Log("stop")
 	}()
 
-	total := 0
+	success := 0
+	failure := 0
 
 	for {
 		s, more := <-collector.ResultChan
 		if !more {
 			break
 		}
-		total += len(s.Success)
+		success += len(s.Success)
+		failure += len(s.Failure)
 		t.Log(s.Time, len(s.Success))
 	}
-	t.Log(total)
-	if total != 500000 {
-		t.Error("invalid count")
+	t.Log(success)
+	t.Log(failure)
+	if success != 450000 || failure != 50000 {
+		t.Error("processed data is invalid")
 	}
 }

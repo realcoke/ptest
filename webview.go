@@ -22,20 +22,20 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 }
 
 type WebViewer struct {
-	InputChan   chan StatReport
+	InputChan   chan Stat
 	Addr        string
 	srv         *http.Server
-	data        []StatReport
-	outputChans []chan StatReport
+	data        []Stat
+	outputChans []chan Stat
 	mutex       *sync.Mutex
 }
 
-func NewWebViewer(inputChan chan StatReport, addr string) *WebViewer {
+func NewWebViewer(inputChan chan Stat, addr string) *WebViewer {
 	wv := &WebViewer{
 		InputChan:   inputChan,
 		Addr:        addr,
-		data:        make([]StatReport, 0),
-		outputChans: make([]chan StatReport, 0),
+		data:        make([]Stat, 0),
+		outputChans: make([]chan Stat, 0),
 		mutex:       &sync.Mutex{},
 	}
 	wv.start()
@@ -43,7 +43,7 @@ func NewWebViewer(inputChan chan StatReport, addr string) *WebViewer {
 }
 func (wv *WebViewer) GenWebSocketHandler() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		outputChan := make(chan StatReport, 100)
+		outputChan := make(chan Stat, 100)
 		wv.addOutputChan(outputChan)
 		defer wv.removeOutputChan(outputChan)
 
@@ -74,7 +74,7 @@ func (wv *WebViewer) GenWebSocketHandler() func(http.ResponseWriter, *http.Reque
 
 }
 
-func (wv *WebViewer) addOutputChan(c chan StatReport) {
+func (wv *WebViewer) addOutputChan(c chan Stat) {
 	wv.mutex.Lock()
 	defer wv.mutex.Unlock()
 	wv.outputChans = append(wv.outputChans, c)
@@ -85,7 +85,7 @@ func (wv *WebViewer) addOutputChan(c chan StatReport) {
 	}()
 }
 
-func (wv *WebViewer) removeOutputChan(c chan StatReport) {
+func (wv *WebViewer) removeOutputChan(c chan Stat) {
 	wv.mutex.Lock()
 	defer wv.mutex.Unlock()
 
@@ -121,7 +121,7 @@ func (wv *WebViewer) start() {
 
 	go func() {
 		for {
-			statReport, more := <-wv.InputChan
+			stat, more := <-wv.InputChan
 			if !more {
 				fmt.Println("webview:no more input")
 
@@ -136,10 +136,10 @@ func (wv *WebViewer) start() {
 				return
 			}
 
-			wv.mutex.Lock()
-			wv.data = append(wv.data, statReport)
+            wv.mutex.Lock()
+			wv.data = append(wv.data, stat)
 			for _, outputChan := range wv.outputChans {
-				outputChan <- statReport
+				outputChan <- stat
 			}
 			wv.mutex.Unlock()
 		}

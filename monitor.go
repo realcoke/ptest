@@ -2,15 +2,17 @@ package ptest
 
 import (
 	"sort"
-	"time"
 )
 
+// sortNMerge get sorted slice l and unsorted slice r
+// it sorts r and merge 2 slices and return the merged slice
 func sortNMerge(l []int, r []int) []int {
 	lenl, lenr := len(l), len(r)
 	n := lenl + lenr
 	new := make([]int, n)
 	sort.Ints(r)
 
+	// merge
 	li, ri, i := 0, 0, 0
 	for i < n {
 		if li == lenl {
@@ -29,13 +31,16 @@ func sortNMerge(l []int, r []int) []int {
 	return new
 }
 
+// Monitor get raw trips data of test from InputChan
+// It generates Stat per second and send it to ResultChan
 type Monitor struct {
-	InputChan  chan *Stat
-	statViews  map[int64]*StatView
-	ResultChan chan StatReport
+	InputChan  chan *TripsOfSec
+	processingStats  map[int64]*ProcessingStat
+	ResultChan chan Stat
 }
 
-type StatReport struct {
+// Stat is statistic data for the second, the timd indicate Time variable
+type Stat struct {
 	TpsSuccess            int
 	TpsFailure            int
 	ResponseTime          int
@@ -50,16 +55,18 @@ type StatReport struct {
 	Time                  int64
 }
 
-type StatView struct {
-	stat *Stat
-	StatReport
+// ProcessingStat contains both Stat and raw data
+type ProcessingStat struct {
+	tripsOfSec *TripsOfSec
+	Stat
 }
 
-func NewMonitor(inputChan chan *Stat) *Monitor {
+// NewMonitor generate a Monitor, start consume and return it
+func NewMonitor(inputChan chan *TripsOfSec) *Monitor {
 	m := &Monitor{
 		InputChan:  inputChan,
-		statViews:  map[int64]*StatView{},
-		ResultChan: make(chan StatReport, 1024),
+		processingStats:  map[int64]*ProcessingStat{},
+		ResultChan: make(chan Stat, 1024),
 	}
 	go m.consume()
 	return m
@@ -67,68 +74,75 @@ func NewMonitor(inputChan chan *Stat) *Monitor {
 
 func (m *Monitor) consume() {
 	for {
-		s, more := <-m.InputChan
+		// get raw data from input
+		tripsOfSec, more := <-m.InputChan
 		if !more {
 			close(m.ResultChan)
 			return
 		}
-		sv, ok := m.statViews[s.Time]
+
+		// get Processing data from map
+		ps, ok := m.processingStats[tripsOfSec.Time]
 		if !ok {
-			sv = &StatView{
-				stat: newStat(time.Now().Unix()),
+			// generate one if it does not exsit
+			ps = &ProcessingStat{
+				tripsOfSec: newTripsOfSec(tripsOfSec.Time),
 			}
-			m.statViews[s.Time] = sv
+			ps.Time = tripsOfSec.Time
+			m.processingStats[tripsOfSec.Time] = ps
 		}
-		sv.Time = s.Time
 
-		sv.stat.Success = sortNMerge(sv.stat.Success, s.Success)
-		sv.stat.Failure = sortNMerge(sv.stat.Failure, s.Failure)
+		// add raw trip data from input channel to processingStat
+		ps.tripsOfSec.Success = sortNMerge(ps.tripsOfSec.Success, tripsOfSec.Success)
+		ps.tripsOfSec.Failure = sortNMerge(ps.tripsOfSec.Failure, tripsOfSec.Failure)
 
-		sv.TpsSuccess = len(sv.stat.Success)
-		sv.TpsFailure = len(sv.stat.Failure)
+		ps.TpsSuccess = len(ps.tripsOfSec.Success)
+		ps.TpsFailure = len(ps.tripsOfSec.Failure)
 
-		s99 := int(float32(sv.TpsSuccess) * 0.99)
-		s95 := int(float32(sv.TpsSuccess) * 0.95)
-		s90 := int(float32(sv.TpsSuccess) * 0.90)
+		// calculate trip counts of 90%, 95% and 99% (bad) case
+		s99 := int(float32(ps.TpsSuccess) * 0.99)
+		s95 := int(float32(ps.TpsSuccess) * 0.95)
+		s90 := int(float32(ps.TpsSuccess) * 0.90)
 
-		f99 := int(float32(sv.TpsFailure) * 0.99)
-		f95 := int(float32(sv.TpsFailure) * 0.95)
-		f90 := int(float32(sv.TpsFailure) * 0.90)
+		f99 := int(float32(ps.TpsFailure) * 0.99)
+		f95 := int(float32(ps.TpsFailure) * 0.95)
+		f90 := int(float32(ps.TpsFailure) * 0.90)
 
+		// calculate averate response time of each cases
 		sum := 0
-
-		for i := sv.TpsSuccess - 1; 0 <= i; i-- {
-			sum += sv.stat.Success[i]
+		for i := ps.TpsSuccess - 1; 0 <= i; i-- {
+			sum += ps.tripsOfSec.Success[i]
 			if i == s90 {
-				sv.ResponseTime90 = sum / (sv.TpsSuccess - i)
+				ps.ResponseTime90 = sum / (ps.TpsSuccess - i)
 			}
 			if i == s95 {
-				sv.ResponseTime95 = sum / (sv.TpsSuccess - i)
+				ps.ResponseTime95 = sum / (ps.TpsSuccess - i)
 			}
 			if i == s99 {
-				sv.ResponseTime99 = sum / (sv.TpsSuccess - i)
+				ps.ResponseTime99 = sum / (ps.TpsSuccess - i)
 			}
 			if i == 0 {
-				sv.ResponseTime = sum / sv.TpsSuccess
+				ps.ResponseTime = sum / ps.TpsSuccess
 			}
 		}
 		sum = 0
-		for i := sv.TpsFailure - 1; 0 <= i; i-- {
-			sum += sv.stat.Failure[i]
+		for i := ps.TpsFailure - 1; 0 <= i; i-- {
+			sum += ps.tripsOfSec.Failure[i]
 			if i == f90 {
-				sv.FailureResponseTime90 = sum / (sv.TpsFailure - i)
+				ps.FailureResponseTime90 = sum / (ps.TpsFailure - i)
 			}
 			if i == f95 {
-				sv.FailureResponseTime95 = sum / (sv.TpsFailure - i)
+				ps.FailureResponseTime95 = sum / (ps.TpsFailure - i)
 			}
 			if i == f99 {
-				sv.FailureResponseTime99 = sum / (sv.TpsFailure - i)
+				ps.FailureResponseTime99 = sum / (ps.TpsFailure - i)
 			}
 			if i == 0 {
-				sv.FailureResponseTime = sum / sv.TpsFailure
+				ps.FailureResponseTime = sum / ps.TpsFailure
 			}
 		}
-		sv.ErrorRate = float32(sv.TpsFailure) / float32(sv.TpsSuccess+sv.TpsFailure)
-		m.ResultChan <- sv.StatReport
+		ps.ErrorRate = float32(ps.TpsFailure) / float32(ps.TpsSuccess+ps.TpsFailure)
+		// send stat every time we get updated one
+		m.ResultChan <- ps.Stat
 	}
 }
