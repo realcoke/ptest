@@ -18,7 +18,6 @@ var upgrader = websocket.Upgrader{}
 func serveHome(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, homehtml)
-	// http.ServeFile(w, r, "home.html")
 }
 
 type WebViewer struct {
@@ -136,7 +135,7 @@ func (wv *WebViewer) start() {
 				return
 			}
 
-            wv.mutex.Lock()
+			wv.mutex.Lock()
 			wv.data = append(wv.data, stat)
 			for _, outputChan := range wv.outputChans {
 				outputChan <- stat
