@@ -3,7 +3,7 @@
 
 <head>
   <title>Performance test</title>
-  <script src="https://www.chartjs.org/dist/2.8.0/Chart.min.js"></script>
+  <script src="/ptest/static/Chart.min.js"></script>
   <style>
     canvas{
       -moz-user-select: none;
@@ -413,7 +413,7 @@
     window.chartErrorRate = new Chart(ctxErrorRate, configErrorRate);
 
     if (window["WebSocket"]) {
-      conn = new WebSocket("ws://" + window.location.host + "/ws");
+      conn = new WebSocket("ws://" + window.location.host + "/ptest/ws");
       conn.onclose = function (evt) {
         appendLog("Connection closed");
       };

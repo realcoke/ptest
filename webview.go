@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
 
@@ -19,16 +18,6 @@ import (
 var staticFiles embed.FS
 
 var upgrader = websocket.Upgrader{}
-
-func serveHome(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	content, err := staticFiles.ReadFile("static/index.html")
-	if err != nil {
-		http.Error(w, "Could not load index page", http.StatusInternalServerError)
-		return
-	}
-	io.WriteString(w, string(content))
-}
 
 type WebViewer struct {
 	InputChan   chan Stat
@@ -39,6 +28,7 @@ type WebViewer struct {
 	mutex       *sync.Mutex
 }
 
+// NewWebViewer creates a new WebViewer that starts its own HTTP server
 func NewWebViewer(inputChan chan Stat, addr string) *WebViewer {
 	wv := &WebViewer{
 		InputChan:   inputChan,
@@ -47,40 +37,84 @@ func NewWebViewer(inputChan chan Stat, addr string) *WebViewer {
 		outputChans: make([]chan Stat, 0),
 		mutex:       &sync.Mutex{},
 	}
-	wv.start()
+	wv.startOwnServer()
+	wv.startDataProcessor()
 	return wv
 }
 
-func (wv *WebViewer) GenWebSocketHandler() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		outputChan := make(chan Stat, 100)
-		wv.addOutputChan(outputChan)
-		defer wv.removeOutputChan(outputChan)
-
-		ws, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Println("upgrade:", err)
-			return
-		}
-		defer ws.Close()
-
-		for {
-			sr := <-outputChan
-
-			b, err := json.Marshal(sr)
-			if err != nil {
-				log.Println("marshal:", err)
-				break
-			}
-
-			err = ws.WriteMessage(websocket.TextMessage, b)
-			if err != nil {
-				log.Println("write:", err)
-				break
-			}
-		}
-		log.Println("wv end")
+// NewWebViewerHandler creates a new WebViewer and registers handlers to the provided http.Handler
+// This allows integration with any HTTP router/mux that implements http.Handler
+func NewWebViewerHandler(inputChan chan Stat, handler http.Handler) *WebViewer {
+	wv := &WebViewer{
+		InputChan:   inputChan,
+		data:        make([]Stat, 0),
+		outputChans: make([]chan Stat, 0),
+		mutex:       &sync.Mutex{},
 	}
+	wv.registerToHandler(handler)
+	wv.startDataProcessor()
+	return wv
+}
+
+func (wv *WebViewer) serveIndex(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	content, err := staticFiles.ReadFile("static/index.html")
+	if err != nil {
+		http.Error(w, "Could not load index page", http.StatusInternalServerError)
+		return
+	}
+	io.WriteString(w, string(content))
+}
+
+func (wv *WebViewer) serveStatic(w http.ResponseWriter, r *http.Request) {
+	// Extract filename from URL path
+	path := strings.TrimPrefix(r.URL.Path, "/ptest/static/")
+	filename := strings.Split(path, "/")[0]
+
+	// Set appropriate content type
+	if strings.HasSuffix(filename, ".js") {
+		w.Header().Set("Content-Type", "application/javascript")
+	} else if strings.HasSuffix(filename, ".css") {
+		w.Header().Set("Content-Type", "text/css")
+	}
+
+	content, err := staticFiles.ReadFile("static/" + filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Write(content)
+}
+
+func (wv *WebViewer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	outputChan := make(chan Stat, 100)
+	wv.addOutputChan(outputChan)
+	defer wv.removeOutputChan(outputChan)
+
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("upgrade:", err)
+		return
+	}
+	defer ws.Close()
+
+	for {
+		sr := <-outputChan
+
+		b, err := json.Marshal(sr)
+		if err != nil {
+			log.Println("marshal:", err)
+			break
+		}
+
+		err = ws.WriteMessage(websocket.TextMessage, b)
+		if err != nil {
+			log.Println("write:", err)
+			break
+		}
+	}
+	log.Println("wv end")
 }
 
 func (wv *WebViewer) addOutputChan(c chan Stat) {
@@ -109,21 +143,46 @@ func (wv *WebViewer) removeOutputChan(c chan Stat) {
 	}
 }
 
-func (wv *WebViewer) start() {
-	r := mux.NewRouter()
-	r.HandleFunc("/", serveHome)
-	r.HandleFunc("/ws", wv.GenWebSocketHandler())
+// registerToHandler registers ptest handlers to any http.Handler that supports route registration
+// This works with standard http.ServeMux, gorilla/mux, gin, echo, etc.
+func (wv *WebViewer) registerToHandler(handler http.Handler) {
+	// For standard http.ServeMux
+	if mux, ok := handler.(*http.ServeMux); ok {
+		mux.HandleFunc("/ptest/", wv.serveIndex)
+		mux.HandleFunc("/ptest/static/", wv.serveStatic)
+		mux.HandleFunc("/ptest/ws", wv.handleWebSocket)
+		return
+	}
+
+	// For other routers, we need a more generic approach
+	// This might require type assertion for specific router types
+	// or we could provide a separate method for manual registration
+	log.Println("Handler registration: please manually register handlers using GetHandler() method")
+}
+
+// GetHandler returns an http.Handler that can be mounted at /ptest prefix
+func (wv *WebViewer) GetHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", wv.serveIndex)
+	mux.HandleFunc("/static/", wv.serveStatic)
+	mux.HandleFunc("/ws", wv.handleWebSocket)
+	return mux
+}
+
+func (wv *WebViewer) startOwnServer() {
+	mux := http.NewServeMux()
+	mux.Handle("/ptest/", http.StripPrefix("/ptest", wv.GetHandler()))
 
 	wv.srv = &http.Server{
 		Addr:         wv.Addr,
 		WriteTimeout: time.Second * 15,
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,
-		Handler:      r,
+		Handler:      mux,
 	}
 
 	go func() {
-		if err := wv.srv.ListenAndServe(); err != nil {
+		if err := wv.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Println(err)
 		}
 	}()
@@ -133,8 +192,10 @@ func (wv *WebViewer) start() {
 	if strings.HasPrefix(addr, ":") {
 		addr = "localhost" + addr
 	}
-	log.Printf("WebViewer started at http://%s", addr)
+	log.Printf("WebViewer started at http://%s/ptest", addr)
+}
 
+func (wv *WebViewer) startDataProcessor() {
 	go func() {
 		for {
 			stat, more := <-wv.InputChan
@@ -148,7 +209,9 @@ func (wv *WebViewer) start() {
 				wv.outputChans = nil
 				wv.mutex.Unlock()
 
-				wv.srv.Close()
+				if wv.srv != nil {
+					wv.srv.Close()
+				}
 				return
 			}
 
