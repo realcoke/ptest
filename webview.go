@@ -43,7 +43,6 @@ func NewWebViewer(inputChan chan Stat, addr string) *WebViewer {
 }
 
 // NewWebViewerHandler creates a new WebViewer and registers handlers to the provided http.Handler
-// This allows integration with any HTTP router/mux that implements http.Handler
 func NewWebViewerHandler(inputChan chan Stat, handler http.Handler) *WebViewer {
 	wv := &WebViewer{
 		InputChan:   inputChan,
@@ -68,7 +67,7 @@ func (wv *WebViewer) serveIndex(w http.ResponseWriter, r *http.Request) {
 
 func (wv *WebViewer) serveStatic(w http.ResponseWriter, r *http.Request) {
 	// Extract filename from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/ptest/static/")
+	path := strings.TrimPrefix(r.URL.Path, "/static/")
 	filename := strings.Split(path, "/")[0]
 
 	// Set appropriate content type
@@ -80,6 +79,7 @@ func (wv *WebViewer) serveStatic(w http.ResponseWriter, r *http.Request) {
 
 	content, err := staticFiles.ReadFile("static/" + filename)
 	if err != nil {
+		log.Printf("Failed to read static file: %s, error: %v", filename, err)
 		http.NotFound(w, r)
 		return
 	}
@@ -144,7 +144,6 @@ func (wv *WebViewer) removeOutputChan(c chan Stat) {
 }
 
 // registerToHandler registers ptest handlers to any http.Handler that supports route registration
-// This works with standard http.ServeMux, gorilla/mux, gin, echo, etc.
 func (wv *WebViewer) registerToHandler(handler http.Handler) {
 	// For standard http.ServeMux
 	if mux, ok := handler.(*http.ServeMux); ok {
@@ -154,9 +153,6 @@ func (wv *WebViewer) registerToHandler(handler http.Handler) {
 		return
 	}
 
-	// For other routers, we need a more generic approach
-	// This might require type assertion for specific router types
-	// or we could provide a separate method for manual registration
 	log.Println("Handler registration: please manually register handlers using GetHandler() method")
 }
 
@@ -192,7 +188,7 @@ func (wv *WebViewer) startOwnServer() {
 	if strings.HasPrefix(addr, ":") {
 		addr = "localhost" + addr
 	}
-	log.Printf("WebViewer started at http://%s/ptest", addr)
+	log.Printf("WebViewer started at http://%s/ptest/", addr)
 }
 
 func (wv *WebViewer) startDataProcessor() {
