@@ -18,7 +18,7 @@ func main() {
 	// Monitor processes raw data to stat
 	m := ptest.NewMonitor(collector.ResultChan)
 	// WebView shows performance test result on web
-	ptest.NewWebViewer(m.ResultChan, ":8080")
+	ptest.NewWebViewer(m.ResultChan, ":9090")
 
 	log.Println("start")
 	stop := false

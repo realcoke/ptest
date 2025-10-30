@@ -19,6 +19,11 @@ var staticFiles embed.FS
 
 var upgrader = websocket.Upgrader{}
 
+// HandlerRegistrar is an interface for types that can register HTTP handlers
+type HandlerRegistrar interface {
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
 type WebViewer struct {
 	InputChan   chan Stat
 	Addr        string
@@ -42,15 +47,15 @@ func NewWebViewer(inputChan chan Stat, addr string) *WebViewer {
 	return wv
 }
 
-// NewWebViewerHandler creates a new WebViewer and registers handlers to the provided http.Handler
-func NewWebViewerHandler(inputChan chan Stat, handler http.Handler) *WebViewer {
+// NewWebViewerHandler creates a new WebViewer and registers handlers to the provided handler
+func NewWebViewerHandler(inputChan chan Stat, registrar HandlerRegistrar) *WebViewer {
 	wv := &WebViewer{
 		InputChan:   inputChan,
 		data:        make([]Stat, 0),
 		outputChans: make([]chan Stat, 0),
 		mutex:       &sync.Mutex{},
 	}
-	wv.registerToHandler(handler)
+	wv.registerHandlers(registrar)
 	wv.startDataProcessor()
 	return wv
 }
@@ -66,9 +71,26 @@ func (wv *WebViewer) serveIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (wv *WebViewer) serveStatic(w http.ResponseWriter, r *http.Request) {
-	// Extract filename from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/static/")
-	filename := strings.Split(path, "/")[0]
+	// Extract filename from URL path - handle both /ptest/static/ and /static/ patterns
+	var filename string
+	if strings.HasPrefix(r.URL.Path, "/ptest/static/") {
+		filename = strings.TrimPrefix(r.URL.Path, "/ptest/static/")
+	} else if strings.HasPrefix(r.URL.Path, "/static/") {
+		filename = strings.TrimPrefix(r.URL.Path, "/static/")
+	} else {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Remove any additional path segments, keep only the filename
+	if idx := strings.Index(filename, "/"); idx != -1 {
+		filename = filename[:idx]
+	}
+
+	if filename == "" {
+		http.NotFound(w, r)
+		return
+	}
 
 	// Set appropriate content type
 	if strings.HasSuffix(filename, ".js") {
@@ -143,31 +165,17 @@ func (wv *WebViewer) removeOutputChan(c chan Stat) {
 	}
 }
 
-// registerToHandler registers ptest handlers to any http.Handler that supports route registration
-func (wv *WebViewer) registerToHandler(handler http.Handler) {
-	// For standard http.ServeMux
-	if mux, ok := handler.(*http.ServeMux); ok {
-		mux.HandleFunc("/ptest/", wv.serveIndex)
-		mux.HandleFunc("/ptest/static/", wv.serveStatic)
-		mux.HandleFunc("/ptest/ws", wv.handleWebSocket)
-		return
-	}
-
-	log.Println("Handler registration: please manually register handlers using GetHandler() method")
-}
-
-// GetHandler returns an http.Handler that can be mounted at /ptest prefix
-func (wv *WebViewer) GetHandler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", wv.serveIndex)
-	mux.HandleFunc("/static/", wv.serveStatic)
-	mux.HandleFunc("/ws", wv.handleWebSocket)
-	return mux
+// registerHandlers registers ptest handlers to any HandlerRegistrar
+func (wv *WebViewer) registerHandlers(registrar HandlerRegistrar) {
+	registrar.HandleFunc("/ptest/", wv.serveIndex)
+	registrar.HandleFunc("/ptest/static/", wv.serveStatic)
+	registrar.HandleFunc("/ptest/ws", wv.handleWebSocket)
 }
 
 func (wv *WebViewer) startOwnServer() {
 	mux := http.NewServeMux()
-	mux.Handle("/ptest/", http.StripPrefix("/ptest", wv.GetHandler()))
+	// 중복 제거: registerHandlers 사용
+	wv.registerHandlers(mux)
 
 	wv.srv = &http.Server{
 		Addr:         wv.Addr,
