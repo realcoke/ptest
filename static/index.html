@@ -1,432 +1,196 @@
 <!doctype html>
 <html>
-
 <head>
-  <title>Performance test</title>
+  <title>Performance Test Dashboard</title>
   <script src="/ptest/static/Chart.min.js"></script>
   <style>
-    canvas{
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    .header {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    .session-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .status {
+      padding: 4px 12px;
+      border-radius: 16px;
+      color: white;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .status.running { background-color: #4CAF50; }
+    .status.stopped { background-color: #f44336; }
+    .status.idle { background-color: #9e9e9e; }
+
+    .charts-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .chart-panel {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .chart-title {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      text-align: center;
+      color: #333;
+    }
+
+    canvas {
       -moz-user-select: none;
       -webkit-user-select: none;
       -ms-user-select: none;
+    }
+
+    .log {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      height: 200px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    .connection-status {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 8px 16px;
+      border-radius: 4px;
+      color: white;
+      font-size: 12px;
+    }
+
+    .connected { background-color: #4CAF50; }
+    .disconnected { background-color: #f44336; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+
+    .stat-item {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+
+    /* Responsive design for smaller screens */
+    @media (max-width: 1200px) {
+      .charts-container {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .charts-container {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 
 <body>
-<div style="width:90%;">
-  <table style="width:100%;">
-    <tr>
-      <td style="width:50%;">
-        <canvas id="TPS"></canvas>
-      </td>
-      <td style="width:50%;">
-        <canvas id="responseTime"></canvas>
-      </td>
-    </tr>
-    <tr>
-      <td style="width:50%;">
-        <canvas id="errorTPS"></canvas>
-      </td>
-      <td style="width:50%;">
-        <canvas id="errorResponseTime"></canvas>
-      </td>
-    </tr>
-    <tr>
-      <td style="width:50%;">
-        <canvas id="errorRate"></canvas>
-      </td>
-      <td style="width:50%;">
-      </td>
-    </tr>
-  </table>
+<div id="connectionStatus" class="connection-status disconnected">Disconnected</div>
+
+<div class="header">
+  <div class="session-info">
+    <div>
+      <h1>Performance Test Dashboard</h1>
+      <div id="sessionName">No active session</div>
+      <div id="sessionDuration">-</div>
+    </div>
+    <div>
+      <span id="sessionStatus" class="status idle">idle</span>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-item">
+      <div id="totalRequests" class="stat-value">0</div>
+      <div class="stat-label">Total Requests</div>
+    </div>
+    <div class="stat-item">
+      <div id="currentTPS" class="stat-value">0</div>
+      <div class="stat-label">Current TPS</div>
+    </div>
+    <div class="stat-item">
+      <div id="avgResponseTime" class="stat-value">0</div>
+      <div class="stat-label">Avg Response Time (ms)</div>
+    </div>
+    <div class="stat-item">
+      <div id="errorRate" class="stat-value">0%</div>
+      <div class="stat-label">Error Rate</div>
+    </div>
+  </div>
 </div>
-<br>
-<div id="log"></div>
-<script>
-  var log = document.getElementById("log");
 
-  function appendLog(text) {
-    var item = document.createElement("div");
-    item.innerText = text;
+<div class="charts-container">
+  <div class="chart-panel">
+    <div class="chart-title">Total TPS</div>
+    <canvas id="totalTPSChart"></canvas>
+  </div>
+  <div class="chart-panel">
+    <div class="chart-title">Success TPS</div>
+    <canvas id="successTPSChart"></canvas>
+  </div>
+  <div class="chart-panel">
+    <div class="chart-title">Error TPS</div>
+    <canvas id="errorTPSChart"></canvas>
+  </div>
+  <div class="chart-panel">
+    <div class="chart-title">Success Response Time</div>
+    <canvas id="successResponseTimeChart"></canvas>
+  </div>
+  <div class="chart-panel">
+    <div class="chart-title">Error Response Time</div>
+    <canvas id="errorResponseTimeChart"></canvas>
+  </div>
+  <div class="chart-panel">
+    <div class="chart-title">Error Rate</div>
+    <canvas id="errorRateChart"></canvas>
+  </div>
+</div>
 
-    var doScroll = log.scrollTop > log.scrollHeight - log.clientHeight - 1;
-    log.appendChild(item);
-    if (doScroll) {
-      log.scrollTop = log.scrollHeight - log.clientHeight;
-    }
-  }
+<div class="log" id="log"></div>
 
-  var chartColors = {
-    red: 'rgb(255, 99, 132)',
-    orange: 'rgb(255, 159, 64)',
-    yellow: 'rgb(255, 205, 86)',
-    green: 'rgb(75, 192, 192)',
-    blue: 'rgb(54, 162, 235)',
-    purple: 'rgb(153, 102, 255)',
-    grey: 'rgb(201, 203, 207)'
-  };
-
-  var configTPS = {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'TPS',
-        backgroundColor: chartColors.red,
-        borderColor: chartColors.red,
-        data: [],
-        fill: false,
-      }]
-    },
-    options: {
-      responsive: true,
-      title: {
-        display: true,
-        text: 'Success-TPS'
-      },
-      tooltips: {
-        mode: 'index',
-        intersect: false,
-      },
-      hover: {
-        mode: 'nearest',
-        intersect: true
-      },
-      scales: {
-        xAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'Time'
-          }
-        }],
-        yAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'TPS'
-          }
-        }]
-      }
-    }
-  };
-
-
-  var configResponseTime = {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'ResponseTime',
-        backgroundColor: chartColors.green,
-        borderColor: chartColors.green,
-        data: [],
-        fill: false,
-      },{
-        label: 'ResponseTime90',
-        backgroundColor: chartColors.blue,
-        borderColor: chartColors.blue,
-        data: [],
-        fill: false,
-      },{
-        label: 'ResponseTime95',
-        backgroundColor: chartColors.yellow,
-        borderColor: chartColors.yellow,
-        data: [],
-        fill: false,
-      },{
-        label: 'ResponseTime99',
-        backgroundColor: chartColors.red,
-        borderColor: chartColors.red,
-        data: [],
-        fill: false,
-      }]
-    },
-    options: {
-      responsive: true,
-      title: {
-        display: true,
-        text: 'ResponseTime'
-      },
-      tooltips: {
-        mode: 'index',
-        intersect: false,
-      },
-      hover: {
-        mode: 'nearest',
-        intersect: true
-      },
-      scales: {
-        xAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'Time'
-          }
-        }],
-        yAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'ResponseTime'
-          }
-        }]
-      }
-    }
-  };
-
-  var configErrorTPS = {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'TPS',
-        backgroundColor: chartColors.red,
-        borderColor: chartColors.red,
-        data: [],
-        fill: false,
-      }]
-    },
-    options: {
-      responsive: true,
-      title: {
-        display: true,
-        text: 'error-TPS'
-      },
-      tooltips: {
-        mode: 'index',
-        intersect: false,
-      },
-      hover: {
-        mode: 'nearest',
-        intersect: true
-      },
-      scales: {
-        xAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'Time'
-          }
-        }],
-        yAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'TPS'
-          }
-        }]
-      }
-    }
-  };
-
-
-  var configErrorResponseTime = {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'ResponseTime',
-        backgroundColor: chartColors.green,
-        borderColor: chartColors.green,
-        data: [],
-        fill: false,
-      },{
-        label: 'ResponseTime90',
-        backgroundColor: chartColors.blue,
-        borderColor: chartColors.blue,
-        data: [],
-        fill: false,
-      },{
-        label: 'ResponseTime95',
-        backgroundColor: chartColors.yellow,
-        borderColor: chartColors.yellow,
-        data: [],
-        fill: false,
-      },{
-        label: 'ResponseTime99',
-        backgroundColor: chartColors.red,
-        borderColor: chartColors.red,
-        data: [],
-        fill: false,
-      }]
-    },
-    options: {
-      responsive: true,
-      title: {
-        display: true,
-        text: 'Error-ResponseTime'
-      },
-      tooltips: {
-        mode: 'index',
-        intersect: false,
-      },
-      hover: {
-        mode: 'nearest',
-        intersect: true
-      },
-      scales: {
-        xAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'Time'
-          }
-        }],
-        yAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'ResponseTime'
-          }
-        }]
-      }
-    }
-  };
-
-
-  var configErrorRate = {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'errorRate',
-        backgroundColor: chartColors.red,
-        borderColor: chartColors.red,
-        data: [],
-        fill: false,
-      }]
-    },
-    options: {
-      responsive: true,
-      title: {
-        display: true,
-        text: 'error-rate'
-      },
-      tooltips: {
-        mode: 'index',
-        intersect: false,
-      },
-      hover: {
-        mode: 'nearest',
-        intersect: true
-      },
-      scales: {
-        xAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'Time'
-          }
-        }],
-        yAxes: [{
-          display: true,
-          scaleLabel: {
-            display: true,
-            labelString: 'errorRate'
-          }
-        }]
-      }
-    }
-  };
-
-
-  var startTime = 0;
-
-  function feed(data) {
-    var time = new Date(data.Time*1000);
-
-    if(startTime == 0) {
-      startTime = data.Time;
-    }
-    offset = data.Time - startTime;
-
-    if(startTime > data.Time) {
-      appendLog("startTime > data.Time," + startTime + "," + data.Time)
-      return;
-    }
-
-    while (configTPS.data.labels.length < offset) {
-      var l = configTPS.data.labels.length
-      configTPS.data.labels[l] = l
-      configTPS.data.datasets[0].data[l] = 0;
-
-      configResponseTime.data.labels[l] = l
-      configResponseTime.data.datasets[0].data[l] = 0;
-      configResponseTime.data.datasets[1].data[l] = 0;
-      configResponseTime.data.datasets[2].data[l] = 0;
-      configResponseTime.data.datasets[3].data[l] = 0;
-
-      configErrorTPS.data.labels[l] = l
-      configErrorTPS.data.datasets[0].data[l] = 0;
-
-      configErrorResponseTime.data.labels[l] = l
-      configErrorResponseTime.data.datasets[0].data[l] = 0;
-      configErrorResponseTime.data.datasets[1].data[l] = 0;
-      configErrorResponseTime.data.datasets[2].data[l] = 0;
-      configErrorResponseTime.data.datasets[3].data[l] = 0;
-    }
-
-    configTPS.data.labels[offset] = offset;
-    configTPS.data.datasets[0].data[offset] = data.TpsSuccess;
-
-    configResponseTime.data.labels[offset] = offset;
-    configResponseTime.data.datasets[0].data[offset] = data.ResponseTime;
-    configResponseTime.data.datasets[1].data[offset] = data.ResponseTime90;
-    configResponseTime.data.datasets[2].data[offset] = data.ResponseTime95;
-    configResponseTime.data.datasets[3].data[offset] = data.ResponseTime99;
-
-    configErrorTPS.data.labels[offset] = offset;
-    configErrorTPS.data.datasets[0].data[offset] = data.TpsFailure;
-
-    configErrorResponseTime.data.labels[offset] = offset;
-    configErrorResponseTime.data.datasets[0].data[offset] = data.FailureResponseTime;
-    configErrorResponseTime.data.datasets[1].data[offset] = data.FailureResponseTime90;
-    configErrorResponseTime.data.datasets[2].data[offset] = data.FailureResponseTime95;
-    configErrorResponseTime.data.datasets[3].data[offset] = data.FailureResponseTime99;
-
-    configErrorRate.data.labels[offset] = offset;
-    configErrorRate.data.datasets[0].data[offset] = data.ErrorRate;
-
-    window.chartTPS.update();
-    window.chartResponseTime.update();
-    window.chartErrorTPS.update();
-    window.chartErrorResponseTime.update();
-    window.chartErrorRate.update();
-  }
-
-  window.onload = function() {
-    var ctxTPS = document.getElementById('TPS').getContext('2d');
-    window.chartTPS = new Chart(ctxTPS, configTPS);
-
-    var ctxResponseTime = document.getElementById('responseTime').getContext('2d');
-    window.chartResponseTime = new Chart(ctxResponseTime, configResponseTime);
-
-    var ctxErrorTPS = document.getElementById('errorTPS').getContext('2d');
-    window.chartErrorTPS = new Chart(ctxErrorTPS, configErrorTPS);
-
-    var ctxErrorResponseTime = document.getElementById('errorResponseTime').getContext('2d');
-    window.chartErrorResponseTime = new Chart(ctxErrorResponseTime, configErrorResponseTime);
-
-    var ctxErrorRate = document.getElementById('errorRate').getContext('2d');
-    window.chartErrorRate = new Chart(ctxErrorRate, configErrorRate);
-
-    if (window["WebSocket"]) {
-      conn = new WebSocket("ws://" + window.location.host + "/ptest/ws");
-      conn.onclose = function (evt) {
-        appendLog("Connection closed");
-      };
-      conn.onmessage = function (evt) {
-        data = JSON.parse(evt.data);
-        feed(data);
-      };
-    } else {
-      var item = document.createElement("div");
-      item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
-      appendLog(item);
-    }
-  };
-</script>
+<script src="/ptest/static/dashboard.js"></script>
 </body>
 </html>

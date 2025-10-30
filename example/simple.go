@@ -12,48 +12,56 @@ import (
 )
 
 func main() {
-	log.Println("init")
-	// Collector collects raw data
-	collector := ptest.NewCollector()
-	// Monitor processes raw data to stat
-	m := ptest.NewMonitor(collector.ResultChan)
-	// WebView shows performance test result on web
-	ptest.NewWebViewer(m.ResultChan, ":9090")
+	log.Println("Initializing Performance Test Runner...")
 
-	log.Println("start")
+	// Create TestRunner with its own server
+	runner := ptest.NewTestRunner(":9090")
+	defer runner.Close()
+
+	// Start performance test
+	log.Println("Starting performance test session...")
+	runner.StartTest("Simple Load Test")
+
+	// Run test workload
 	stop := false
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	// Simulate 50 concurrent users
+	for i := 0; i < 50; i++ {
 		wg.Add(1)
-		go func() {
+		go func(userID int) {
+			defer wg.Done()
+
 			for !stop {
+				// Simulate work
 				start := time.Now()
-				time.Sleep(time.Millisecond * time.Duration(rand.Intn(99)))
-				result := true
-				if rand.Intn(10) < 2 {
-					result = false
-				}
+
+				// Random work duration (10-100ms)
+				workDuration := time.Duration(rand.Intn(90)+10) * time.Millisecond
+				time.Sleep(workDuration)
+
+				// Random success/failure (90% success rate)
+				success := rand.Intn(100) < 90
+
 				// Report test result
-				collector.Report(start, result)
+				runner.Report(start, success)
 			}
-			wg.Done()
-		}()
+		}(i)
 	}
 
+	log.Printf("Performance test running with 50 concurrent users")
+	log.Printf("Dashboard available at: http://localhost:9090/ptest/")
+	log.Println("Press Ctrl+C to stop...")
+
+	// Wait for interrupt signal
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c
 
-	log.Println("stop")
+	log.Println("Stopping test...")
 	stop = true
-	wg.Wait()
-	log.Println("goroutines - stopped")
+	runner.StopTest()
 
-	// this will close chains of channels
-	// 1. input and output channels of the collector
-	// 2. input and output channels of the monitor
-	// 3. input and output channels of the viewview
-	collector.Stop()
-	time.Sleep(time.Second)
+	wg.Wait()
+	log.Println("Test completed")
 }

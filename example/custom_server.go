@@ -14,18 +14,24 @@ import (
 )
 
 func main() {
-	log.Println("init")
-
-	// Collector collects raw data
-	collector := ptest.NewCollector()
-	// Monitor processes raw data to stat
-	m := ptest.NewMonitor(collector.ResultChan)
+	log.Println("Initializing Custom HTTP Server with Performance Test...")
 
 	// Create HTTP server mux
 	mux := http.NewServeMux()
 
-	// Create WebViewer handler (no own server)
-	ptest.NewWebViewerHandler(m.ResultChan, mux)
+	// Add your own endpoints
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Hello! Performance dashboard is at /ptest/"))
+	})
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Create TestRunner with handler registration (no own server)
+	runner := ptest.NewTestRunnerWithHandler(mux)
+	defer runner.Close()
 
 	// Create HTTP server
 	srv := &http.Server{
@@ -36,7 +42,7 @@ func main() {
 		IdleTimeout:  time.Second * 60,
 	}
 
-	// Start server in goroutine
+	// Start server
 	go func() {
 		log.Printf("Custom HTTP server started at http://localhost:9090")
 		log.Printf("Performance test dashboard available at http://localhost:9090/ptest/")
@@ -45,27 +51,54 @@ func main() {
 		}
 	}()
 
-	log.Println("start performance test")
+	// Start performance test
+	log.Println("Starting performance test session...")
+	runner.StartTest("Custom Server Load Test")
+
+	// Simulate test workload
 	stop := false
 	var wg sync.WaitGroup
 
-	// Simulate performance test workload
+	// Simulate 100 concurrent users with varying load
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
-		go func() {
+		go func(userID int) {
 			defer wg.Done()
+
 			for !stop {
 				start := time.Now()
-				time.Sleep(time.Millisecond * time.Duration(rand.Intn(99)))
-				result := true
-				if rand.Intn(10) < 2 {
-					result = false
+
+				// Simulate different types of operations with different durations
+				operationType := rand.Intn(3)
+				var workDuration time.Duration
+				var successRate int
+
+				switch operationType {
+				case 0: // Fast operation
+					workDuration = time.Duration(rand.Intn(50)+10) * time.Millisecond
+					successRate = 95
+				case 1: // Medium operation
+					workDuration = time.Duration(rand.Intn(100)+50) * time.Millisecond
+					successRate = 90
+				case 2: // Slow operation
+					workDuration = time.Duration(rand.Intn(200)+100) * time.Millisecond
+					successRate = 85
 				}
-				// Report test result
-				collector.Report(start, result)
+
+				time.Sleep(workDuration)
+
+				success := rand.Intn(100) < successRate
+				runner.Report(start, success)
+
+				// Random think time between requests
+				thinkTime := time.Duration(rand.Intn(1000)) * time.Millisecond
+				time.Sleep(thinkTime)
 			}
-		}()
+		}(i)
 	}
+
+	log.Printf("Performance test running with 100 concurrent users")
+	log.Println("Press Ctrl+C to stop...")
 
 	// Wait for interrupt signal
 	c := make(chan os.Signal, 1)
@@ -74,6 +107,7 @@ func main() {
 
 	log.Println("Shutting down...")
 	stop = true
+	runner.StopTest()
 
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -84,10 +118,5 @@ func main() {
 	}
 
 	wg.Wait()
-	log.Println("goroutines - stopped")
-
-	// Stop data collection chain
-	collector.Stop()
-	time.Sleep(time.Second)
 	log.Println("Application stopped")
 }
